@@ -1,65 +1,118 @@
 
+async function getRealtimeData() {
+    try {
+        // Fetch the GTFS real-time data
+        const response = await fetch("https://kordis-jmk.cz/gtfs/gtfsReal.dat");
+        if (!response.ok) {
+          const error = new Error(`${response.url}: ${response.status} ${response.statusText}`);
+          error.response = response;
+          throw error;
+          //process.exit(1);
+        }
+        const buffer = await response.arrayBuffer();
+        const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(
+          new Uint8Array(buffer)
+        );
+        console.log(feed); 
+        return feed; 
+        }
+        catch (error) {
+            console.log(error);
+            //process.exit(1);
+        }
 
-// Define the location of the nearest stop
-const nearestStopLat = 37.7833; // latitude of the nearest stop
-const nearestStopLon = -122.4167; // longitude of the nearest stop
+}
 
-const homeLat = 49.2077738; //   49.2077738
-const homeLong = 16.6241738;
-
-
-// Define the GTFS-realtime feed URL
-const gtfsRtFeedUrl = 'https://kordis-jmk.cz/gtfs/gtfsReal.dat';
-
-// Define the GTFS static data URL
-const gtfsStaticDataUrl = 'https://kordis-jmk.cz/gtfs/gtfs.zip';
-
-// Create a new GTFS-realtime client (a new instance of FeedMessage class from the GtfsRealtimeBndings module)
-const gtfsRtClient = new GtfsRealtimeBindings.FeedMessage();
-
-// Load the GTFS-realtime feed
-fetch(gtfsRtFeedUrl)
-  .then(response => response.arrayBuffer())
-  .then(buffer => {
-    gtfsRtClient.decode(buffer);
-    console.log(gtfsRtClient); 
-  });
-
-
+getRealtimeData(); 
 
 /*
-// Create a new GTFS static data client
-const gtfsStaticDataClient = new TransitGtfsRtJs.StaticData({
-  url: gtfsStaticDataUrl
-});
 
-// Find the nearest stop
-const nearestStop = gtfsStaticDataClient.findNearestStop(nearestStopLat, nearestStopLon);
+async function getDepartures(homeLat, homeLong) {
+    try {
+      // Fetch the GTFS real-time data
+      const response = await fetch("https://kordis-jmk.cz/gtfs/gtfsReal.dat");
+      if (!response.ok) {
+        const error = new Error(`${response.url}: ${response.status} ${response.statusText}`);
+        error.response = response;
+        throw error;
+        //process.exit(1);
+      }
+      const buffer = await response.arrayBuffer();
+      const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(
+        new Uint8Array(buffer)
+      );
+      //console.log(feed); 
+      
+      
+      // Get the stop information from the GTFS static data
+      const staticResponse = await fetch("https://kordis-jmk.cz/gtfs/gtfs.zip");
+      if (!staticResponse.ok) {
+        const error = new Error(`${staticResponse.url}: ${staticResponse.status} ${staticResponse.statusText}`);
+        error.response = staticResponse;
+        throw error;
+        //process.exit(1);
+      }
+      const staticBuffer = await staticResponse.arrayBuffer();
+      const staticFeed = await gtfsToJSON(staticBuffer);
+      const stops = staticFeed.stops;
+      console.log(stops); 
+    
+      // Find the nearest stop
+      const nearestStop = getNearestStop(homeLat, homeLong, stops);
+      
+      // Query the GTFS real-time data for the current departures
+      const departures = [];
+      feed.entity.forEach((entity) => {
+        if (entity.tripUpdate) {
+          const update = entity.tripUpdate;
+          update.stopTimeUpdate.forEach((stopUpdate) => {
+            if (stopUpdate.stopId === nearestStop.stop_id) {
+              const departure = {
+                routeId: update.trip.routeId,
+                tripId: update.trip.tripId,
+                scheduledTime: stopUpdate.arrival.time.low,
+                estimatedTime: stopUpdate.departure.time.low
+              };
+              departures.push(departure);
+            }
+          });
+        }
+      });
+      
+      // Return the departures
+      return departures;
+    }
+    catch (error) {
+      console.log(error);
+      //process.exit(1);
+    }
+}
 
-// Get the current time
-const now = new Date();
+  // Helper function to convert GTFS static data to JSON
+async function gtfsToJSON(buffer) {
+    const zip = await JSZip.loadAsync(buffer);
+    const files = zip.file(/\.txt$/);
+    const feed = {};
+    for (const file of files) {
+      const content = await file.async("string");
+      const name = file.name.replace(".txt", "");
+      feed[name] = csvToJSON(content);
+    }
+    return feed;
+}
 
-// Find the next arrival and departure times at the nearest stop
-const arrivalsAndDepartures = gtfsRtClient.entity.filter(entity => {
-  return entity.tripUpdate && entity.tripUpdate.stopTimeUpdate.some(stopTimeUpdate => {
-    return stopTimeUpdate.stopId === nearestStop.id &&
-           new Date(stopTimeUpdate.arrival.time.low * 1000) > now;
-  });
-}).map(entity => {
-  const trip = gtfsStaticDataClient.getTrip(entity.tripUpdate.trip.tripId);
-  const route = gtfsStaticDataClient.getRoute(trip.routeId);
-  const stopTimeUpdate = entity.tripUpdate.stopTimeUpdate.find(stopTimeUpdate => stopTimeUpdate.stopId === nearestStop.id);
-  return {
-    routeShortName: route.shortName,
-    arrivalTime: new Date(stopTimeUpdate.arrival.time.low * 1000),
-    departureTime: new Date(stopTimeUpdate.departure.time.low * 1000)
-  };
-}).sort((a, b) => {
-  return a.arrivalTime - b.arrivalTime;
-});
+function csvToJSON(csv) {
+    const lines = csv.split("\n");
+    const result = [];
+    const headers = lines[0].split(",");
+    for (let i = 1; i < lines.length; i++) {
+      const obj = {};
+      const currentLine = lines[i].split(",");
+      for (let j = 0; j < headers.length; j++) {
+        obj[headers[j]] = currentLine[j];
+      }
+      result.push(obj);
+    }
+    return result;
+}
 
-// Log the results
-console.log(`Next arrivals and departures at ${nearestStop.name}:`);
-arrivalsAndDepartures.forEach(arrivalAndDeparture => {
-  console.log(`${arrivalAndDeparture.routeShortName}: ${arrivalAndDeparture.arrivalTime.toLocaleTimeString()} (arrival), ${arrivalAndDeparture.departureTime.toLocaleTimeString()} (departure)`);
-}); */
