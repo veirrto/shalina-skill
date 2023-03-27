@@ -1,0 +1,40 @@
+const Alexa = require('ask-sdk-core');
+//var https = require('https');
+const { fetchPromise, getNearestStop } = require('./the nearest stop.js');
+const NearestStopIntentHandler = {
+  canHandle(handlerInput) {
+    const request = handlerInput.requestEnvelope.request;
+    return request.type === 'IntentRequest'
+      && request.intent.name === 'NearestStopIntent';
+  },
+  async handle(handlerInput) {
+
+    try {
+
+      //const response = await fetchPromise; 
+
+      const stops = await fetchPromise; 
+      
+
+    
+      console.log(stops); 
+      //console.log(`Nearest stop: ${nearestStop.Name}, distance: ${nearestDistance}`);
+
+      console.log('Data received successfully.'); 
+
+      return handlerInput.responseBuilder
+        .speak(stops)
+        .reprompt("What would you like?")
+        .getResponse();
+
+    }
+
+    catch (error) {
+      console.error(error);
+      return handlerInput.responseBuilder
+        .speak("Sorry, there was an error. Please try again later.")
+        .getResponse()
+
+    }
+  }
+}
